@@ -7,12 +7,17 @@
 
 import Cocoa
 import AVFoundation
-let fontName = "SFMono-Regular"
 
 class NoWrapTextView: NSTextView {
+    static let fontName = "SFMono-Regular"
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        setupView()
+    }
+    
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
         setupView()
     }
     
@@ -24,7 +29,7 @@ class NoWrapTextView: NSTextView {
     func setupView() {
         self.isEditable = false
         self.usesFontPanel = false
-        self.font = NSFont(name: fontName, size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        self.font = NSFont(name: NoWrapTextView.fontName, size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         self.backgroundColor = NSColor.black
         self.textContainer?.lineBreakMode = .byClipping
         self.textContainer?.containerSize = NSMakeSize(CGFloat.greatestFiniteMagnitude, CGFloat.greatestFiniteMagnitude)
@@ -37,12 +42,11 @@ class NoWrapTextView: NSTextView {
     }
 }
 
-@NSApplicationMain
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
-    @IBOutlet weak var mainWindow: NSWindow!
-    @IBOutlet weak var logTextView: NSTextView!
-    @IBOutlet weak var playSoundsMenuItem: NSMenuItem!
+    var mainWindow: NSWindow!
+    var logTextView: NSTextView!
+    var playSoundsMenuItem: NSMenuItem!
     
     let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -51,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }()
 
     let logTextAttributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont(name: fontName, size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+        .font: NSFont(name: NoWrapTextView.fontName, size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
         .foregroundColor: NSColor.white
     ]
     
@@ -60,7 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var changeSound: AVAudioPlayer?
     var shouldPlaySounds = false
 
-    @IBAction func toggleSoundPlayback(_ sender: NSMenuItem) {
+    @objc func toggleSoundPlayback(_ sender: NSMenuItem) {
         shouldPlaySounds.toggle()
         UserDefaults.standard.set(shouldPlaySounds, forKey: "shouldPlaySounds")
         playSoundsMenuItem?.state = shouldPlaySounds ? .on : .off
@@ -68,13 +72,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
+        // Set activation policy to accessory (menu bar only)
+        NSApp.setActivationPolicy(.accessory)
+        
+        // Create the main window programmatically
+        let windowRect = NSRect(x: 100, y: 100, width: 800, height: 600)
+        mainWindow = NSWindow(contentRect: windowRect,
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                             backing: .buffered,
+                             defer: false)
+        mainWindow.title = "frontapp"
         mainWindow.delegate = self
+        
+        // Create scroll view and text view
+        let scrollView = NSScrollView(frame: mainWindow.contentView!.bounds)
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        
+        logTextView = NoWrapTextView(frame: scrollView.bounds)
+        scrollView.documentView = logTextView
+        mainWindow.contentView?.addSubview(scrollView)
+        
+        // Create menu bar
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        
+        let appMenu = NSMenu()
+        playSoundsMenuItem = NSMenuItem(title: "Play Sounds", action: #selector(toggleSoundPlayback), keyEquivalent: "")
+        playSoundsMenuItem.target = self
+        appMenu.addItem(playSoundsMenuItem)
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenuItem.submenu = appMenu
+        
+        NSApplication.shared.mainMenu = mainMenu
+        
+        // Setup observers and status item
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(appChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        
+        statusItem.button?.action = #selector(toggleWindow)
+        statusItem.button?.target = self
+        
         if let frontmostApp = NSWorkspace.shared.frontmostApplication,
            let appName = frontmostApp.localizedName {
             updateMenuBarText(appName)
         }
-        mainWindow.orderOut(nil)
+        
         if let frameString = UserDefaults.standard.string(forKey: "windowFrame") {
             mainWindow.setFrame(NSRectFromString(frameString), display: true)
         }
@@ -83,7 +128,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             playSoundsMenuItem.state = shouldPlaySounds ? .on : .off
         }
         mainWindow.makeKeyAndOrderFront(nil)
-        statusItem.button?.action = #selector(toggleWindow)
         self.logToWindowAndConsole("=== logging started ===")
     }
     
